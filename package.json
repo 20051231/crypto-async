@@ -32,7 +32,8 @@
   "homepage": "https://github.com/ronomon/crypto-async#readme",
   "scripts": {
     "postinstall": "node-gyp clean",
-    "test": "node test.js"
+    "test": "node test.js && node testHasher.js",
+    "testHasher": "node testHasher.js"
   },
   "dependencies": {
     "@ronomon/queue": "^3.0.0",

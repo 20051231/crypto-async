@@ -465,11 +465,220 @@ NAN_METHOD(hmac) {
   ));
 }
 
+class Hasher;
+
+class HasherWorker : public Nan::AsyncWorker {
+ public:
+  HasherWorker(
+    v8::Local<v8::Object> &self,
+    v8::Local<v8::Object> &sourceHandle,
+    const size_t sourceOffset,
+    const size_t sourceSize,
+    Nan::Callback *end
+  ) : Nan::AsyncWorker(end),
+      sourceOffset(sourceOffset),
+      sourceSize(sourceSize) {
+        SaveToPersistent("sourceHandle", sourceHandle);
+        SaveToPersistent("self", self);
+        
+        this->self = Nan::ObjectWrap::Unwrap<Hasher>(self);
+        source = reinterpret_cast<const unsigned char*>(node::Buffer::Data(sourceHandle));
+  }
+
+  ~HasherWorker() {}
+
+  void Execute();
+
+  void HandleOKCallback ();
+
+ private:
+  Hasher* self;
+  const size_t sourceOffset;
+  const size_t sourceSize;
+  const unsigned char* source;
+};
+
+
+
+class Hasher : public Nan::ObjectWrap  {
+public:
+  const EVP_MD* digest;
+  EVP_MD_CTX* ctx;
+  int working;
+
+  Hasher() {
+    this->ctx = nullptr;
+    this->digest = nullptr;
+    this->working = 0;
+  }
+
+  ~Hasher() {
+    this->Cleanup();
+  }
+
+  void Cleanup() {
+    if(this->ctx) {
+      EVP_MD_CTX_cleanup(this->ctx);
+      delete this->ctx;
+      this->ctx = nullptr;
+    }
+  }
+
+  static NAN_METHOD(Update) {
+    Hasher * self = Nan::ObjectWrap::Unwrap<Hasher>(info.This());
+    if(!self->ctx) {
+      return Nan::ThrowError("object disposed");
+    }
+    if(self->working) {
+      return Nan::ThrowError("working");
+    }
+
+    if (
+      info.Length() != 4 ||
+      !node::Buffer::HasInstance(info[0]) ||
+      !info[1]->IsUint32() ||
+      !info[2]->IsUint32() ||
+      !info[3]->IsFunction()
+    ) {
+      return Nan::ThrowError(
+        "bad arguments, expected: ("
+        "Buffer source, int sourceOffset, int sourceSize, cb)"
+      );
+    }
+
+    v8::Local<v8::Object> sourceHandle = info[0].As<v8::Object>();
+    const size_t sourceOffset = info[1]->Uint32Value();
+    const size_t sourceSize = info[2]->Uint32Value();
+    Nan::Callback *end = new Nan::Callback(info[3].As<v8::Function>());
+
+    self->working = 1;
+    Nan::AsyncQueueWorker(new HasherWorker(
+      info.This(),
+      sourceHandle,
+      sourceOffset,
+      sourceSize,
+      end
+    ));
+  }
+
+  static NAN_METHOD(Digest) {
+    Hasher * self = Nan::ObjectWrap::Unwrap<Hasher>(info.This());
+    if(!self->ctx) {
+      return Nan::ThrowError("object disposed");
+    }
+    if(self->working) {
+      return Nan::ThrowError("working");
+    }
+
+    if (
+      info.Length() != 2 ||
+      !node::Buffer::HasInstance(info[0]) ||
+      !info[1]->IsUint32()
+    ) {
+      return Nan::ThrowError(
+        "bad arguments, expected: (Buffer target, int targetOffset)"
+      );
+    }
+    v8::Local<v8::Object> targetHandle = info[0].As<v8::Object>();
+    const size_t targetOffset = info[1]->Uint32Value();
+    const size_t targetSize = EVP_MD_size(self->digest);
+    if (targetOffset + targetSize > node::Buffer::Length(targetHandle)) {
+      return Nan::ThrowError("target too small");
+    }
+
+    unsigned char* target = reinterpret_cast<unsigned char*>(node::Buffer::Data(targetHandle));
+
+    if (!EVP_DigestFinal_ex(self->ctx, target + targetOffset, nullptr)) {
+      self->Cleanup();
+      return Nan::ThrowError("digest final error");
+    }
+
+    self->Cleanup();
+    info.GetReturnValue().Set(Nan::New<v8::Number>(targetSize));
+    return;
+  }
+
+  static NAN_METHOD(New) {
+    if(!info.IsConstructCall()) {
+        return Nan::ThrowError(Nan::New("Hasher::New - called without new keyword").ToLocalChecked());
+    }
+    if (
+      info.Length() != 1 ||
+      !info[0]->IsString()
+    ) {
+      return Nan::ThrowError(
+        "bad arguments, expected: (string algorithm)"
+      );
+    }
+    Nan::Utf8String algorithm(info[0]);
+    const EVP_MD* digest = EVP_get_digestbyname(*algorithm);
+    if (!digest) {
+      return Nan::ThrowError("algorithm not supported");
+    }
+    Hasher* self = new Hasher();
+    self->digest = digest;
+    self->ctx = new EVP_MD_CTX();
+    EVP_MD_CTX_init(self->ctx);
+    if (!EVP_DigestInit_ex(self->ctx, digest, nullptr)) {
+      self->Cleanup();
+      delete self;
+      return Nan::ThrowError("digest init error");
+    }
+    self->Wrap(info.Holder());
+    info.GetReturnValue().Set(info.Holder());
+  }
+
+  static inline Nan::Persistent<v8::Function> & constructor() {
+    static Nan::Persistent<v8::Function> my_constructor;
+    return my_constructor;
+  }
+  static NAN_MODULE_INIT(Init) {
+    v8::Local<v8::FunctionTemplate> tpl = Nan::New<v8::FunctionTemplate>(New);
+    tpl->SetClassName(Nan::New("Hasher").ToLocalChecked());
+    tpl->InstanceTemplate()->SetInternalFieldCount(1);
+
+    Nan::SetPrototypeMethod(tpl, "update", Update);
+    Nan::SetPrototypeMethod(tpl, "digest", Digest);
+
+    constructor().Reset(Nan::GetFunction(tpl).ToLocalChecked());
+    Nan::Set(target, Nan::New("Hasher").ToLocalChecked(),
+      Nan::GetFunction(tpl).ToLocalChecked());
+  }
+
+};
+
+void HasherWorker::Execute() {
+  if(!self->ctx) {
+    return SetErrorMessage("object disposed");
+  }
+  if (!EVP_DigestUpdate(self->ctx, source + sourceOffset, sourceSize)) {
+    self->working = 0;
+    self->Cleanup();
+    SetErrorMessage("digest update error");
+    return;
+  }
+}
+
+void HasherWorker::HandleOKCallback () {
+  Nan::HandleScope scope;
+
+  self->working = 0;
+  v8::Local<v8::Value> argv[] = {
+    Nan::Undefined()
+  };
+  callback->Call(1, argv);
+}
+
+
+
+
+
 NAN_MODULE_INIT(Init) {
   OpenSSL_add_all_algorithms();
   NAN_EXPORT(target, cipher);
   NAN_EXPORT(target, hash);
   NAN_EXPORT(target, hmac);
+  Hasher::Init(target);
 }
 
 NODE_MODULE(binding, Init);

@@ -2,7 +2,15 @@
 
 var binding = require('./binding.node');
 
-module.exports.cipher = function() {
+module.exports.cipher = function(...args) {
+  if(args.length === 13 || args.length === 5) {
+    return new Promise((resolve, reject) => {
+      module.exports.cipher(...args, (err, result) => {
+        if(err) reject(err);
+        else resolve(result);
+      });
+    })
+  }
   if (arguments.length === 14) return binding.cipher.apply(this, arguments);
   if (arguments.length !== 6) throw new Error('bad number of arguments');
   var algorithm = arguments[0];
@@ -40,7 +48,15 @@ module.exports.cipher = function() {
   );
 };
 
-module.exports.hash = function() {
+module.exports.hash = function(...args) {
+  if(args.length === 6 || args.length === 2) {
+    return new Promise((resolve, reject) => {
+      module.exports.hash(...args, (err, result) => {
+        if(err) reject(err);
+        else resolve(result);
+      });
+    })
+  }
   if (arguments.length === 7) return binding.hash.apply(this, arguments);
   if (arguments.length !== 3) throw new Error('bad number of arguments');
   var algorithm = arguments[0];
@@ -64,7 +80,15 @@ module.exports.hash = function() {
   );
 };
 
-module.exports.hmac = function() {
+module.exports.hmac = function(...args) {
+  if(args.length === 9 || args.length === 3) {
+    return new Promise((resolve, reject) => {
+      module.exports.hmac(...args, (err, result) => {
+        if(err) reject(err);
+        else resolve(result);
+      });
+    })
+  }
   if (arguments.length === 10) return binding.hmac.apply(this, arguments);
   if (arguments.length !== 4) throw new Error('bad number of arguments');
   var algorithm = arguments[0];
@@ -93,5 +117,43 @@ module.exports.hmac = function() {
     }
   );
 };
+
+class Hasher {
+  constructor(algo) {
+    this.hasher = new binding.Hasher(algo);
+  }
+
+  update(...args) {
+    const cb = args[args.length - 1];
+    if(cb && typeof cb === 'function') {
+      args.pop();
+      if(args.length === 0 || args.length > 3) throw new Error('bad number of arguments');
+      const buf = args[0];
+      const offset = args[1] || 0;
+      const length = args[2] || buf.length - offset;
+
+      this.hasher.update(buf, offset, length, cb);
+    } else {
+      return new Promise((resolve, reject) => {
+        this.update(...args, (err, result) => {
+          if(err) reject(err);
+          else resolve(result);
+        })
+      })
+    }
+  }
+
+  digest(target, targetOffset) {
+    const retSize = target !== undefined;
+    target = target || Buffer.alloc(64);
+    targetOffset = targetOffset || 0;
+    const size = this.hasher.digest(target, targetOffset);
+    return retSize ? size : target.slice(0, size);
+  }
+}
+
+module.exports.createHash = function(algo) {
+  return new Hasher(algo);
+}
 
 // S.D.G.
