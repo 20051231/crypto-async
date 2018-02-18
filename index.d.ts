@@ -64,5 +64,5 @@ declare module '@ronomon/crypto-async' {
         createHash(algorithm : string) : Hasher;
     }
 
-    export = CryptoAsync
+    export = new CryptoAsync
 }
