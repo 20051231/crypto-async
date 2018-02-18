@@ -2,6 +2,14 @@
 
 declare module '@ronomon/crypto-async' {
 
+    interface Hasher {
+        update(source : Buffer, offset? : number, size? : number) : Promise<void>
+        update(source : Buffer, offset? : number, size? : number, cb : () => void)
+        
+        digest(target : Buffer, offset? : number) : number
+        digest() : Buffer
+    }
+
     interface CryptoAsync {
         cipher(algorithm : string, encrypt : number, 
             key : Buffer, iv : Buffer, 
@@ -52,6 +60,8 @@ declare module '@ronomon/crypto-async' {
             source : Buffer, sourceOffset : number, sourceSize : number,
             target : Buffer, targetOffset : number,
             cb : (err : any, targetSize : number) => void) : void
+
+        createHash(algorithm : string) : Hasher;
     }
 
     export = CryptoAsync

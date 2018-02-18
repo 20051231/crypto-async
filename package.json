@@ -39,5 +39,6 @@
     "@ronomon/queue": "^3.0.0",
     "nan": "^2.8.0"
   },
+  "types": "./index.d.ts",
   "gypfile": true
 }
