@@ -22,8 +22,7 @@
             'uint=unsigned int',
           ],
           'libraries': [ 
-            '-l<(openssl_root)/lib/libeay32.lib',
-            '-l<(openssl_root)/lib/libcrypto.lib',
+            '-l<(openssl_root)/lib/*.lib',
           ],
           'include_dirs': [
             '<(openssl_root)/include',
