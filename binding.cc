@@ -40,43 +40,43 @@ class CipherWorker : public Nan::AsyncWorker {
 
   void Execute() {
     int written;
-    EVP_CIPHER_CTX ctx;
-    EVP_CIPHER_CTX_init(&ctx);
+    EVP_CIPHER_CTX* ctx;
+    ctx = EVP_CIPHER_CTX_new();
     if (!EVP_CipherInit_ex(
-      &ctx,
+      ctx,
       cipher,
       nullptr,
       key + keyOffset,
       iv + ivOffset,
       encrypt
     )) {
-      EVP_CIPHER_CTX_cleanup(&ctx);
+      EVP_CIPHER_CTX_free(ctx);
       SetErrorMessage("cipher init error");
       return;
     }
     if (!EVP_CipherUpdate(
-      &ctx,
+      ctx,
       target + targetOffset,
       &written,
       source + sourceOffset,
       sourceSize
     )) {
-      EVP_CIPHER_CTX_cleanup(&ctx);
+      EVP_CIPHER_CTX_free(ctx);
       SetErrorMessage("cipher update error");
       return;
     }
     targetSize += written;
     if (!EVP_CipherFinal_ex(
-      &ctx,
+      ctx,
       target + (targetOffset + written),
       &written
     )) {
-      EVP_CIPHER_CTX_cleanup(&ctx);
+      EVP_CIPHER_CTX_free(ctx);
       SetErrorMessage("cipher final error");
       return;
     }
     targetSize += written;
-    EVP_CIPHER_CTX_cleanup(&ctx);
+    EVP_CIPHER_CTX_free(ctx);
   }
 
   void HandleOKCallback () {
@@ -130,24 +130,24 @@ class HashWorker : public Nan::AsyncWorker {
   ~HashWorker() {}
 
   void Execute() {
-    EVP_MD_CTX ctx;
-    EVP_MD_CTX_init(&ctx);
-    if (!EVP_DigestInit_ex(&ctx, digest, nullptr)) {
-      EVP_MD_CTX_cleanup(&ctx);
+    EVP_MD_CTX* ctx;
+    ctx = EVP_MD_CTX_new();
+    if (!EVP_DigestInit_ex(ctx, digest, nullptr)) {
+      EVP_MD_CTX_free(ctx);
       SetErrorMessage("digest init error");
       return;
     }
-    if (!EVP_DigestUpdate(&ctx, source + sourceOffset, sourceSize)) {
-      EVP_MD_CTX_cleanup(&ctx);
+    if (!EVP_DigestUpdate(ctx, source + sourceOffset, sourceSize)) {
+      EVP_MD_CTX_free(ctx);
       SetErrorMessage("digest update error");
       return;
     }
-    if (!EVP_DigestFinal_ex(&ctx, target + targetOffset, nullptr)) {
-      EVP_MD_CTX_cleanup(&ctx);
+    if (!EVP_DigestFinal_ex(ctx, target + targetOffset, nullptr)) {
+      EVP_MD_CTX_free(ctx);
       SetErrorMessage("digest final error");
       return;
     }
-    EVP_MD_CTX_cleanup(&ctx);
+    EVP_MD_CTX_free(ctx);
   }
 
   void HandleOKCallback () {
@@ -203,32 +203,32 @@ class HMACWorker : public Nan::AsyncWorker {
   ~HMACWorker() {}
 
   void Execute () {
-    HMAC_CTX ctx;
-    HMAC_CTX_init(&ctx);
+    HMAC_CTX* ctx;
+    ctx = HMAC_CTX_new();
     if (keySize == 0) {
-      if (!HMAC_Init_ex(&ctx, "", 0, digest, nullptr)) {
-        HMAC_CTX_cleanup(&ctx);
+      if (!HMAC_Init_ex(ctx, "", 0, digest, nullptr)) {
+        HMAC_CTX_free(ctx);
         SetErrorMessage("hmac init error with zero-size key");
         return;
       }
     } else {
-      if (!HMAC_Init_ex(&ctx, key + keyOffset, keySize, digest, nullptr)) {
-        HMAC_CTX_cleanup(&ctx);
+      if (!HMAC_Init_ex(ctx, key + keyOffset, keySize, digest, nullptr)) {
+        HMAC_CTX_free(ctx);
         SetErrorMessage("hmac init error");
         return;
       }
     }
-    if (!HMAC_Update(&ctx, source + sourceOffset, sourceSize)) {
-      HMAC_CTX_cleanup(&ctx);
+    if (!HMAC_Update(ctx, source + sourceOffset, sourceSize)) {
+      HMAC_CTX_free(ctx);
       SetErrorMessage("hmac update error");
       return;
     }
-    if (!HMAC_Final(&ctx, target + targetOffset, nullptr)) {
-      HMAC_CTX_cleanup(&ctx);
+    if (!HMAC_Final(ctx, target + targetOffset, nullptr)) {
+      HMAC_CTX_free(ctx);
       SetErrorMessage("hmac final error");
       return;
     }
-    HMAC_CTX_cleanup(&ctx);
+    HMAC_CTX_free(ctx);
   }
 
   void HandleOKCallback () {
@@ -518,8 +518,7 @@ public:
 
   void Cleanup() {
     if(this->ctx) {
-      EVP_MD_CTX_cleanup(this->ctx);
-      delete this->ctx;
+      EVP_MD_CTX_free(this->ctx);
       this->ctx = nullptr;
     }
   }
@@ -617,8 +616,7 @@ public:
     }
     Hasher* self = new Hasher();
     self->digest = digest;
-    self->ctx = new EVP_MD_CTX();
-    EVP_MD_CTX_init(self->ctx);
+    self->ctx = EVP_MD_CTX_new();
     if (!EVP_DigestInit_ex(self->ctx, digest, nullptr)) {
       self->Cleanup();
       delete self;
